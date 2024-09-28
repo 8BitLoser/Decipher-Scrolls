@@ -3,43 +3,62 @@ local bs = require("BeefStranger.Decipher Scrolls.common")
 
 local CostTrack = {} ---Used to track scrolls cost to modify label color
 
----@class bsDecipherScroll
-local Learn = {}
-Learn.ID = tes3ui.registerID("BS_DecipherScroll")
-Learn.gemProp = tes3ui.registerID("BS_Learn_soulGem")
-Learn.gemDataProp = tes3ui.registerID("BS_Learn_soulData")
+---@class bsDecipherScrollMenu
+local Menu = {}
+Menu.ID = tes3ui.registerID("BS_DecipherScroll")
+Menu.gemProp = tes3ui.registerID("BS_Learn_soulGem")
+Menu.gemDataProp = tes3ui.registerID("BS_Learn_soulData")
 
-function Learn:get() return tes3ui.findMenu(Learn.ID) end
-function Learn:child(child) return self:get():findChild(child) end
-function Learn:SoulGemIcon() return self:child("SoulGem_Icon") end
-function Learn:getGem() return self:get():getPropertyObject(self.gemProp) end
----@return tes3itemData
-function Learn:getGemData() return self:get():getPropertyObject(self.gemDataProp, "tes3itemData") end
-function Learn:getGemSoul() return self:getGemData() and self:getGemData().soul.soul end
----@param selectedGem tes3ui.showInventorySelectMenu.callbackParams
-function Learn:setGem(selectedGem)
-    self:get():setPropertyObject(self.gemProp, selectedGem.item)
-    self:get():setPropertyObject(self.gemDataProp, selectedGem.itemData)
+function Menu:get() return tes3ui.findMenu(Menu.ID) end
+function Menu:child(child) return self:get():findChild(child) end
+function Menu:SoulGemIcon() return self:child("SoulGem_Icon") end
+function Menu:SoulGemValue() return self:child("SoulGem_Value") end
+function Menu:getGem() return self:get():getPropertyObject(self.gemProp) end ---@return tes3misc
+function Menu:getGemData() return self:get():getPropertyObject(self.gemDataProp, "tes3itemData") end ---@return tes3itemData
+function Menu:getGemSoul() return self:getGemData() and self:getGemData().soul.soul end
+
+function Menu:setLabelColor()
+    for id, cost in pairs(CostTrack) do
+        if self:getGem() and cost <= self:getGemSoul() then
+            self:child(id):findChild("Label").color = bs.rgb.normalColor
+        else
+            self:child(id):findChild("Label").color = bs.rgb.focusColor
+        end
+    end
 end
 
--- function Learn:clearGem()
---     self:get():setPropertyObject(self.gemProp, "")
---     self:get():setPropertyObject(self.gemDataProp, "")
--- end
+function Menu:updateGemDisplay()
+    if self:getGem() then
+        self:SoulGemIcon().contentPath = "Icons\\" .. self:getGem().icon
+        self:SoulGemIcon().visible = true
+        self:get():findChild("SoulGem_Value").text = "Charge: "..self:getGemSoul()
+    else
+        self:SoulGemIcon().visible = false
+        self:SoulGemValue().text = "Charge: 0"
+    end
+end
+
+---@param selectedGem tes3ui.showInventorySelectMenu.callbackParams
+function Menu:setGem(selectedGem)
+    self:get():setPropertyObject(self.gemProp, selectedGem.item)
+    self:get():setPropertyObject(self.gemDataProp, selectedGem.itemData)
+    self:updateGemDisplay()
+    self:setLabelColor()
+end
+
+function Menu:clearGem()
+    self:get():removeProperty(Menu.gemProp)
+    self:get():removeProperty(Menu.gemDataProp)
+    self:updateGemDisplay()
+    self:setLabelColor()
+end
 
 ---Slightly tweaked Vanilla Enchant ChargeCost calc, takes into account player enchant level 
 ---@param enchant tes3enchantment
 local function magickaCost(enchant)
-    local baseCost = enchant.chargeCost * 1.05
+    local baseCost = enchant.chargeCost * cfg.costMult
     local actualCost = baseCost - (baseCost / 100) * (tes3.mobilePlayer.enchant.current - 50)
     return math.max(1, math.ceil(actualCost))
-end
-
----Reset all scroll label colors
-local function resetLabelColor()
-    for id, _ in pairs(CostTrack) do
-        Learn:child(id):findChild("Label").color = bs.rgb.focusColor
-    end
 end
 
 ---Create Spell from enchantment and destroy scroll/gem
@@ -48,26 +67,26 @@ end
 local function spellCreation(stack, e)
     local enchant = stack.object.enchantment
     local cost = magickaCost(enchant)
-    if Learn:getGem() and Learn:SoulGemIcon().visible then
-        if Learn:getGemSoul() > cost then
+    if Menu:getGem()--[[  and Learn:SoulGemIcon().visible ]] then
+        if Menu:getGemSoul() > cost then
             local spell = tes3.createObject({ id = "bs" .. stack.object.id, objectType = tes3.objectType.spell })
             for index, value in ipairs(enchant.effects) do
                 spell.effects[index] = value
             end
+            local name = string.gsub(stack.object.name, "Scroll of ", "")
             spell.magickaCost = cost
-            spell.name = "[D] " .. string.gsub(stack.object.name, "Scroll of ", "")
+            spell.name = cfg.spellPrefix and "[D] "..name or name
             tes3.addSpell { spell = spell, mobile = tes3.mobilePlayer }
             tes3.updateMagicGUI({ reference = tes3.player })
-            Learn:SoulGemIcon().visible = false
-            Learn:get():findChild("SoulGem_Value").text = "Charge: 0"
-            debug.log(cost)
 
-            resetLabelColor()
             CostTrack[e.source.name] = nil
 
             tes3.removeItem{reference = tes3.player, item = stack.object}
-            tes3.removeItem{reference = tes3.player, item = Learn:getGem(), itemData = Learn:getGemData()}
+            tes3.removeItem{reference = tes3.player, item = Menu:getGem(), itemData = Menu:getGemData()}
+
+            Menu:clearGem()
             e.source:destroy()
+            tes3.messageBox("You've learned to cast %s", spell.name)
         else
             tes3.messageBox("Soul not powerful enough. Needed: %s", cost)
         end
@@ -84,18 +103,17 @@ local function createScrollList(list)
         if stack.object.objectType == tes3.objectType.book and stack.object.enchantment then
             local enchant = stack.object.enchantment
             local cost = magickaCost(enchant)
+
             local listBlock = list:createBlock { id = "Item_" .. counter }
             listBlock.autoHeight = true
-            -- listBlock.autoWidth = true
             listBlock.widthProportional = 1
 
             local icon = listBlock:createImage({ id = "Icon", path = "Icons\\" .. stack.object.icon })
+
             local label = listBlock:createLabel({ id = "Label", text = stack.object.name })
             label.color = bs.rgb.focusColor
-            -- if Learn:getGemSoul() and Learn:getGemSoul() then
-            --     label.color = Learn:getGemSoul() > magickaCost(enchant) and bs.rgb.normalColor or bs.rgb.negativeColor
-            -- end
-            local costLabel = listBlock:createLabel({ id = "Decipher_Cost", text = "Cost: " .. magickaCost(enchant) })
+
+            local costLabel = listBlock:createLabel({ id = "Decipher_Cost", text = tostring(magickaCost(enchant))})
             costLabel.absolutePosAlignX = 1
 
             CostTrack[listBlock.name] = cost
@@ -114,14 +132,6 @@ local function createScrollList(list)
     end
 end
 
-local function setLabelColor()
-    for id, cost in pairs(CostTrack) do
-        if cost <= Learn:getGemSoul() then
-            Learn:child(id):findChild("Label").color = bs.rgb.normalColor
-        end
-    end
-end
-
 ---@param gemSelect tes3uiElement
 local function soulGemSelect(gemSelect)
     gemSelect:register(tes3.uiEvent.mouseClick, function(e)
@@ -132,13 +142,7 @@ local function soulGemSelect(gemSelect)
             end,
             callback = function(select)
                 if select.item then
-                    Learn:SoulGemIcon().contentPath = "Icons\\" .. select.item.icon
-                    Learn:SoulGemIcon().visible = true
-                    Learn:setGem(select)
-                    Learn:get():findChild("SoulGem_Value").text = "Charge: " .. select.itemData.soul.soul
-
-                    setLabelColor()
-
+                    Menu:setGem(select)
                     e.source:getTopLevelMenu():updateLayout()
                 end
             end
@@ -146,50 +150,58 @@ local function soulGemSelect(gemSelect)
     end)
 end
 
-event.register("keyUp", function(e)
+---@param e keyUpEventData
+local function keyDown(e)
     if not tes3ui.menuMode() then
-        local menu = tes3ui.createMenu { id = Learn.ID, fixedFrame = true }
-        menu.width = 400
-        menu.height = 600
-        menu.autoWidth = false
-        menu.autoHeight = false
+        if tes3.isKeyEqual({actual = e, expected = cfg.key}) then
+            local menu = tes3ui.createMenu { id = Menu.ID, fixedFrame = true }
+            menu.width = 400
+            menu.height = 600
+            menu.autoWidth = false
+            menu.autoHeight = false
 
-        local header = menu:createBlock { id = "Header" }
-        header.autoHeight = true
-        header.widthProportional = 1
-        header:createLabel { id = "Header_Text", text = "Decipher Scrolls" }
+            local header = menu:createBlock { id = "Header" }
+            header.autoHeight = true
+            header.widthProportional = 1
+            header:createLabel { id = "Header_Text", text = "Decipher Scrolls" }
 
-        local gemBlock = header:createBlock { id = "SoulGem_Block" }
-        gemBlock.autoHeight = true
-        gemBlock.widthProportional = 1
-        gemBlock.childAlignX = 1
+            local gemBlock = header:createBlock { id = "SoulGem_Block" }
+            gemBlock.autoHeight = true
+            gemBlock.widthProportional = 1
+            gemBlock.childAlignX = 1
 
-        local soulValue = gemBlock:createLabel { id = "SoulGem_Value", text = "Charge: 0" }
-        soulValue.borderTop = 10
-        soulValue.borderRight = 30
+            local soulValue = gemBlock:createLabel { id = "SoulGem_Value", text = "Charge: 0" }
+            soulValue.borderTop = 10
+            soulValue.borderRight = 30
 
-        local gemSelect = gemBlock:createImage({ id = "SoulGem_Select", path = "Textures\\menu_icon_equip.tga" })
-        gemSelect.absolutePosAlignX = 1
+            local gemSelect = gemBlock:createImage({ id = "SoulGem_Select", path = "Textures\\menu_icon_equip.tga" })
+            gemSelect.absolutePosAlignX = 1
 
+            local soulGem = gemSelect:createImage { id = "SoulGem_Icon" }
+            soulGem.borderAllSides = 6
 
-        local soulGem = gemSelect:createImage { id = "SoulGem_Icon" }
-        soulGem.borderAllSides = 6
+            soulGemSelect(gemSelect)
 
-        soulGemSelect(gemSelect)
+            local list = menu:createVerticalScrollPane({ id = "Scroll_List" })
+            createScrollList(list)
 
-        local list = menu:createVerticalScrollPane({ id = "Scroll_List" })
-        createScrollList(list)
+            list:getContentElement():sortChildren(function (a, b)
+                local costA = tonumber(a:findChild("Decipher_Cost").text) or 0
+                local costB = tonumber(b:findChild("Decipher_Cost").text) or 0
+                return costA < costB
+            end)
 
-        local close = menu:createButton({ id = "Close", text = "Close" })
-        close:register(tes3.uiEvent.mouseClick, function(e)
-            e.source:getTopLevelMenu():destroy()
-            tes3ui.leaveMenuMode()
-        end)
+            local close = menu:createButton({ id = "Close", text = "Close" })
+            close:register(tes3.uiEvent.mouseClick, function(e)
+                e.source:getTopLevelMenu():destroy()
+                tes3ui.leaveMenuMode()
+            end)
 
-        tes3ui.enterMenuMode("BS_LearnScroll")
+            tes3ui.enterMenuMode("BS_LearnScroll")
+        end
     end
-end, { filter = cfg.key.keyCode })
-
+end
+event.register("keyDown", keyDown)
 
 event.register("initialized", function()
     print("[MWSE:Decipher Scrolls] initialized")

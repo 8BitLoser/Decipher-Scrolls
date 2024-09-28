@@ -1,6 +1,8 @@
-local configPath = "DecipherScrolls"
+local configPath = "Decipher Scrolls"
 ---@class bsDecipherConfig<K, V>: { [K]: V }
 local defaults = {
+    costMult = 1.05,
+    spellPrefix = true,
     key = { --Keycode to trigger menu
         keyCode = tes3.scanCode.i,
         isShiftDown = false,
@@ -20,11 +22,16 @@ local function registerModConfig()
     local settings = template:createPage({ label = "Settings" })
     settings.showReset = true
 
-    -- settings:createSlider({
-    --     label = "Example Slider",
-    --     configKey = "exampleSlider",
-    --     min = 0, max = 10, step = 0.01, jump = 0.10, decimalPlaces = 2,
-    -- })
+    settings:createYesNoButton({
+        label = "Prefix Spell Name with [D]",
+        configKey = "spellPrefix"
+    })
+
+    settings:createSlider({
+        label = "Soul/Cast Cost Multiplier",
+        configKey = "costMult",
+        min = 0.1, max = 10, step = 0.01, jump = 0.10, decimalPlaces = 2,
+    })
 
     settings:createKeyBinder({
         label = "Decipher Menu Hotkey",

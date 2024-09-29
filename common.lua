@@ -1,7 +1,12 @@
 ---@class bsDecipherCommon
-local this = {}
+local common = {}
 
-this.sounds = {
+---@param scanCode tes3.scanCode
+function common.isKeyDown(scanCode)
+    return tes3.worldController.inputController:isKeyDown(scanCode)
+end
+
+common.sounds = {
     alitMOAN = "alitMOAN",
     alitROAR = "alitROAR",
     alitSCRM = "alitSCRM",
@@ -605,7 +610,7 @@ this.sounds = {
     Wooden_Door_Open_1 = "Wooden Door Open 1",
 }
 
-this.rgb = {
+common.rgb = {
     bsPrettyBlue = { 0.235, 0.616, 0.949 },
     bsNiceRed = { 0.941, 0.38, 0.38 },
     bsPrettyGreen = { 0.38, 0.941, 0.525 },
@@ -638,4 +643,4 @@ this.rgb = {
     whiteColor = { 1, 1, 1 }
 }
 
-return this
+return common

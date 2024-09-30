@@ -1,7 +1,6 @@
 local cfg = require("BeefStranger.Decipher Scrolls.config")
 local bs = require("BeefStranger.Decipher Scrolls.common")
 
-local CostTrack = {} ---Used to track scrolls cost to modify label color
 local newName
 
 ---@class bsDecipherScrollMenu
@@ -34,33 +33,27 @@ function Menu:child(child) return self:get():findChild(child) end
 function Menu:ScrollList() return self:child("Scroll_List") end
 function Menu:SoulGemIcon() return self:child(id.gemIcon) end
 function Menu:SoulGemValue() return self:child(id.gemValue) end
+function Menu:Cost(element) return element:getPropertyInt("BS_Scroll_Cost") end---@return number
+
 function Menu:getGem() return self:get():getPropertyObject(self.gemProp) end ---@return tes3misc
 function Menu:getGemData() return self:get():getPropertyObject(self.gemDataProp, "tes3itemData") end ---@return tes3itemData
-function Menu:getGemSoul() return self:getGemData() and self:getGemData().soul.soul or 0 end
-function Menu:getCost(element) return element:getPropertyFloat("BS_Scroll_Cost") end---@return number
+function Menu:getSoul() return self:getGemData() and self:getGemData().soul.soul or 0 end
 
 function Menu:setLabelColor()
     for _, child in ipairs(self:ScrollList():getContentElement().children) do
-        if self:getGemSoul() >= self:getCost(child) then
+        if self:getSoul() >= self:Cost(child) then
             child:findChild(id.scrollLabel).color = bs.rgb.normalColor
         else
             child:findChild(id.scrollLabel).color = bs.rgb.focusColor
         end
     end
-    -- for id, cost in pairs(CostTrack) do
-    --     if self:getGem() and cost <= self:getGemSoul() then
-    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.normalColor
-    --     else
-    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.focusColor
-    --     end
-    -- end
 end
 
 function Menu:updateGemDisplay()
     if self:getGem() then
         self:SoulGemIcon().contentPath = "Icons\\" .. self:getGem().icon
         self:SoulGemIcon().visible = true
-        self:get():findChild(id.gemValue).text = "Charge: "..self:getGemSoul()
+        self:get():findChild(id.gemValue).text = "Charge: "..self:getSoul()
     else
         self:SoulGemIcon().visible = false
         self:SoulGemValue().text = "Charge: 0"
@@ -75,11 +68,22 @@ function Menu:setGem(selectedGem)
     self:setLabelColor()
 end
 
+---Clear gem properties/update menu
 function Menu:clearGem()
     self:get():removeProperty(Menu.gemProp)
     self:get():removeProperty(Menu.gemDataProp)
     self:updateGemDisplay()
     self:setLabelColor()
+end
+
+---@param spell tes3spell
+---@param scroll tes3book
+function Menu:addSpell(spell, scroll)
+    tes3.addSpell { spell = spell, mobile = tes3.mobilePlayer }
+    tes3.updateMagicGUI({ reference = tes3.player })
+    tes3.removeItem { reference = tes3.player, item = scroll }
+    tes3.removeItem { reference = tes3.player, item = self:getGem(), itemData = self:getGemData() }
+    self:clearGem()
 end
 
 ---Slightly tweaked Vanilla Enchant ChargeCost calc, takes into account player enchant level 
@@ -90,34 +94,46 @@ local function magickaCost(enchant)
     return math.max(1, math.ceil(actualCost))
 end
 
+---@param enchant tes3enchantment
+---@return tes3spell
+local function createSpell(enchant)
+    local spell = tes3.createObject({objectType = tes3.objectType.spell })
+    for index, value in ipairs(enchant.effects) do
+        spell.effects[index] = value
+    end
+    spell.magickaCost = magickaCost(enchant)
+    return spell
+end
+
+function Menu:updateCost()
+    for _, element in ipairs(Menu:ScrollList():getContentElement().children) do
+        local obj = element:getPropertyObject("BS_Scroll_Object") ---@type tes3book
+        element:findChild(id.scrollCost).text = tostring(magickaCost(obj.enchantment))
+    end
+end
+
 ---Create Spell from enchantment and destroy scroll/gem
 ---@param stack tes3itemStack
 ---@param e tes3uiEventData
 local function scrollClick(stack, e)
     local enchant = stack.object.enchantment
-    local cost = magickaCost(enchant)
+    -- local cost = magickaCost(enchant)
+    local cost = Menu:Cost(e.source)
+
     if Menu:getGem() then
-        if Menu:getGemSoul() > cost then
+        if Menu:getSoul() > cost then
             local name = string.gsub(stack.object.name, "Scroll of ", "")
             if newName and newName ~= "Rename" then
                 name = newName
                 newName = nil
             end
-            local spell = tes3.createObject({ id = "bs" .. stack.object.id, objectType = tes3.objectType.spell })
-            for index, value in ipairs(enchant.effects) do
-                spell.effects[index] = value
-            end
-            spell.magickaCost = cost
+            local spell = createSpell(enchant)
             spell.name = cfg.spellPrefix and "[D] "..name or name
-            tes3.addSpell { spell = spell, mobile = tes3.mobilePlayer }
-            tes3.updateMagicGUI({ reference = tes3.player })
 
-            CostTrack[e.source.name] = nil
+            local xp = (cost / 10) + ((Menu:getSoul() - cost) / 10)
 
-            tes3.removeItem{reference = tes3.player, item = stack.object}
-            tes3.removeItem{reference = tes3.player, item = Menu:getGem(), itemData = Menu:getGemData()}
-
-            Menu:clearGem()
+            Menu:addSpell(spell, stack.object)
+            tes3.mobilePlayer:exerciseSkill(tes3.skill.enchant, xp)
             e.source:destroy()
             tes3.messageBox("You've learned to cast %s", spell.name)
         else
@@ -161,7 +177,6 @@ end
 
 ---@param list tes3uiElement
 local function createScrollList(list)
-    CostTrack = {}
     local counter = 0
     for i, stack in pairs(tes3.mobilePlayer.inventory) do
         if stack.object.objectType == tes3.objectType.book and stack.object.enchantment then
@@ -171,7 +186,8 @@ local function createScrollList(list)
             local itemBlock = list:createBlock { id = id.scroll .. counter }
             itemBlock.autoHeight = true
             itemBlock.widthProportional = 1
-            itemBlock:setPropertyFloat("BS_Scroll_Cost", cost)
+            itemBlock:setPropertyInt("BS_Scroll_Cost", cost)
+            itemBlock:setPropertyObject("BS_Scroll_Object", stack.object)
 
             local icon = itemBlock:createImage({ id = id.scrollIcon, path = "Icons\\" .. stack.object.icon })
 
@@ -184,15 +200,13 @@ local function createScrollList(list)
             costLabel.ignoreLayoutY = true
             costLabel.positionY = -5
 
-            CostTrack[itemBlock.name] = cost
-
             itemBlock:register(tes3.uiEvent.mouseOver, function(e)
                 local scrollTooltip = tes3ui.createTooltipMenu({ item = stack.object })
                 scrollTooltip:createLabel({ id = "LearnCost", text = "Decipher Cost: " .. cost })
             end)
 
             itemBlock:register(tes3.uiEvent.mouseClick, function(e)
-                if Menu:getGemSoul() >= Menu:getCost(e.source) and bs.isKeyDown(tes3.scanCode.lShift) then
+                if Menu:getSoul() >= Menu:Cost(e.source) and bs.isKeyDown(tes3.scanCode.lShift) then
                     renameMenu(stack, e)
                 else
                     scrollClick(stack, e)
@@ -296,6 +310,18 @@ local function keyDown(e)
     end
 end
 event.register("keyDown", keyDown)
+
+
+--- @param e exerciseSkillEventData
+local function learn(e)
+    if e.skill == tes3.skill.enchant then
+        if Menu:get() then
+            Menu:updateCost()
+        end
+    end
+end
+event.register(tes3.event.skillRaised, learn)
+
 
 event.register("initialized", function()
     print("[MWSE:Decipher Scrolls] initialized")

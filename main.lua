@@ -47,6 +47,13 @@ function Menu:setLabelColor()
             child:findChild(id.scrollLabel).color = bs.rgb.focusColor
         end
     end
+    -- for id, cost in pairs(CostTrack) do
+    --     if self:getGem() and cost <= self:getGemSoul() then
+    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.normalColor
+    --     else
+    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.focusColor
+    --     end
+    -- end
 end
 
 function Menu:updateGemDisplay()

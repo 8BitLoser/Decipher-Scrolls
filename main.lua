@@ -27,33 +27,28 @@ local id = Menu.ID
 
 Menu.gemProp = tes3ui.registerID("BS_Learn_soulGem")
 Menu.gemDataProp = tes3ui.registerID("BS_Learn_soulData")
+Menu.scrollProp = tes3ui.registerID("BS_Scroll_Object")
+Menu.costProp = tes3ui.registerID("BS_Scroll_Cost")
 
 function Menu:get() return tes3ui.findMenu(id.main) end
 function Menu:child(child) return self:get():findChild(child) end
-function Menu:ScrollList() return self:child("Scroll_List") end
+function Menu:ScrollList() return self:child(id.scrollList) end
 function Menu:SoulGemIcon() return self:child(id.gemIcon) end
 function Menu:SoulGemValue() return self:child(id.gemValue) end
-function Menu:Cost(element) return element:getPropertyInt("BS_Scroll_Cost") end---@return number
 
+function Menu:cost(element) return element:getPropertyInt(self.costProp) end---@return number
 function Menu:getGem() return self:get():getPropertyObject(self.gemProp) end ---@return tes3misc
 function Menu:getGemData() return self:get():getPropertyObject(self.gemDataProp, "tes3itemData") end ---@return tes3itemData
 function Menu:getSoul() return self:getGemData() and self:getGemData().soul.soul or 0 end
 
 function Menu:setLabelColor()
     for _, child in ipairs(self:ScrollList():getContentElement().children) do
-        if self:getSoul() >= self:Cost(child) then
+        if self:getSoul() >= self:cost(child) then
             child:findChild(id.scrollLabel).color = bs.rgb.normalColor
         else
             child:findChild(id.scrollLabel).color = bs.rgb.focusColor
         end
     end
-    -- for id, cost in pairs(CostTrack) do
-    --     if self:getGem() and cost <= self:getGemSoul() then
-    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.normalColor
-    --     else
-    --         self:child(id):findChild(self.ID.scrollLabel).color = bs.rgb.focusColor
-    --     end
-    -- end
 end
 
 function Menu:updateGemDisplay()
@@ -114,7 +109,7 @@ end
 
 function Menu:updateCost()
     for _, element in ipairs(Menu:ScrollList():getContentElement().children) do
-        local obj = element:getPropertyObject("BS_Scroll_Object") ---@type tes3book
+        local obj = element:getPropertyObject(Menu.scrollProp) ---@type tes3book
         element:findChild(id.scrollCost).text = tostring(magickaCost(obj.enchantment))
     end
 end
@@ -125,7 +120,7 @@ end
 local function scrollClick(stack, e)
     local enchant = stack.object.enchantment
     -- local cost = magickaCost(enchant)
-    local cost = Menu:Cost(e.source)
+    local cost = Menu:cost(e.source)
 
     if Menu:getGem() then
         if Menu:getSoul() > cost then
@@ -193,8 +188,8 @@ local function createScrollList(list)
             local itemBlock = list:createBlock { id = id.scroll .. counter }
             itemBlock.autoHeight = true
             itemBlock.widthProportional = 1
-            itemBlock:setPropertyInt("BS_Scroll_Cost", cost)
-            itemBlock:setPropertyObject("BS_Scroll_Object", stack.object)
+            itemBlock:setPropertyInt(Menu.costProp, cost)
+            itemBlock:setPropertyObject(Menu.scrollProp, stack.object)
 
             local icon = itemBlock:createImage({ id = id.scrollIcon, path = "Icons\\" .. stack.object.icon })
 
@@ -213,7 +208,7 @@ local function createScrollList(list)
             end)
 
             itemBlock:register(tes3.uiEvent.mouseClick, function(e)
-                if Menu:getSoul() >= Menu:Cost(e.source) and bs.isKeyDown(tes3.scanCode.lShift) then
+                if Menu:getSoul() >= Menu:cost(e.source) and bs.isKeyDown(tes3.scanCode.lShift) then
                     renameMenu(stack, e)
                 else
                     scrollClick(stack, e)
@@ -226,7 +221,7 @@ local function createScrollList(list)
 end
 
 ---@param gemSelect tes3uiElement
-local function soulGemSelect(gemSelect)
+function Menu:createGemSelect(gemSelect)
     gemSelect:register(tes3.uiEvent.mouseClick, function(e)
         tes3ui.showInventorySelectMenu({
             title = "Soul Gems",
@@ -245,89 +240,96 @@ end
 
 
 
+function Menu:createHeader()
+    local menu = self:get()
+    local header = menu:createBlock { id = id.header }
+    header.autoHeight = true
+    header.widthProportional = 1
+
+    local headerText = header:createLabel { id = id.headerText, text = "Decipher Scrolls" }
+    headerText.borderLeft = 3
+    headerText.borderTop = 13
+
+    local gemBlock = header:createBlock { id = id.gemBlock }
+    gemBlock.autoHeight = true
+    gemBlock.childAlignX = 1
+    gemBlock.widthProportional = 1
+
+    local gemValue = gemBlock:createLabel { id = id.gemValue, text = "Charge: 0" }
+    gemValue.borderRight = 10
+    gemValue.borderTop = 13
+
+    local gemSelect = gemBlock:createImage({ id = id.gemSelect, path = "Textures\\menu_icon_equip.tga" })
+    gemSelect.absolutePosAlignX = 1
+
+    local soulGem = gemSelect:createImage { id = id.gemIcon }
+    soulGem.borderAllSides = 6
+
+    local costLabel = header:createLabel({id = id.headerCost, text = "Cost:"})
+    costLabel.absolutePosAlignX = 0.93
+    costLabel.absolutePosAlignY = 0.96
+    self:createGemSelect(gemSelect)
+end
+
+function Menu:createFooter()
+    local footer = self:get():createBlock({ id = id.footer })
+    footer.autoHeight = true
+    footer.borderTop = 5
+    footer.widthProportional = 1
+
+    local tip = footer:createLabel({ id = id.renameHint, text = "Hold Shift to Rename:" })
+    tip.ignoreLayoutY = true
+    tip.positionY = -5
+
+    local close = footer:createButton({ id = id.close, text = "Close" })
+    close.absolutePosAlignX = 1
+    close.positionY = -3
+    close:register(tes3.uiEvent.mouseClick, function(e)
+        e.source:getTopLevelMenu():destroy()
+        tes3ui.leaveMenuMode()
+    end)
+end
+
+function Menu:CreateMenu()
+    local menu = tes3ui.createMenu { id = id.main, fixedFrame = true }
+    menu.width = 400
+    menu.height = 600
+    menu.autoWidth = false
+    menu.autoHeight = false
+
+    self:createHeader()
+
+    local list = menu:createVerticalScrollPane({ id = id.scrollList })
+    createScrollList(list)
+
+    self:createFooter()
+
+    list:getContentElement():sortChildren(function(a, b)
+        local costA = tonumber(a:findChild(id.scrollCost).text) or 0
+        local costB = tonumber(b:findChild(id.scrollCost).text) or 0
+        return costA < costB
+    end)
+
+    tes3ui.enterMenuMode(id.main)
+end
+
 ---@param e keyUpEventData
 local function keyDown(e)
-    if not tes3ui.menuMode() then
-        if tes3.isKeyEqual({actual = e, expected = cfg.key}) then
-            local menu = tes3ui.createMenu { id = id.main, fixedFrame = true }
-            menu.width = 400
-            menu.height = 600
-            menu.autoWidth = false
-            menu.autoHeight = false
-
-            local header = menu:createBlock { id = id.header }
-            header.autoHeight = true
-            header.widthProportional = 1
-
-            local headerText = header:createLabel { id = id.headerText, text = "Decipher Scrolls" }
-            headerText.borderLeft = 3
-            headerText.borderTop = 13
-
-            local gemBlock = header:createBlock { id = id.gemBlock }
-            gemBlock.autoHeight = true
-            gemBlock.childAlignX = 1
-            gemBlock.widthProportional = 1
-
-            local gemValue = gemBlock:createLabel { id = id.gemValue, text = "Charge: 0" }
-            gemValue.borderRight = 10
-            gemValue.borderTop = 13
-
-            local gemSelect = gemBlock:createImage({ id = id.gemSelect, path = "Textures\\menu_icon_equip.tga" })
-            gemSelect.absolutePosAlignX = 1
-
-            local soulGem = gemSelect:createImage { id = id.gemIcon }
-            soulGem.borderAllSides = 6
-
-            local costLabel = header:createLabel({id = id.headerCost, text = "Cost:"})
-            costLabel.absolutePosAlignX = 0.93
-            costLabel.absolutePosAlignY = 0.96
-
-            soulGemSelect(gemSelect)
-
-            local list = menu:createVerticalScrollPane({ id = id.scrollList })
-            createScrollList(list)
-
-
-            
-            local footer = menu:createBlock({id = "Footer"})
-            footer.autoHeight = true
-            footer.borderTop = 5
-            footer.widthProportional = 1
-            
-            local tip = footer:createLabel({id = "Rename Tip", text = "Hold Shift to Rename:"})
-            tip.ignoreLayoutY = true
-            tip.positionY = -5
-            
-            local close = footer:createButton({id = id.close, text = "Close"})
-            close.absolutePosAlignX = 1
-            close.positionY = -3
-            close:register(tes3.uiEvent.mouseClick, function(e)
-                e.source:getTopLevelMenu():destroy()
-                tes3ui.leaveMenuMode()
-            end)
-            
-            list:getContentElement():sortChildren(function (a, b)
-                local costA = tonumber(a:findChild(id.scrollCost).text) or 0
-                local costB = tonumber(b:findChild(id.scrollCost).text) or 0
-                return costA < costB
-            end)
-
-            tes3ui.enterMenuMode("BS_LearnScroll")
+    if not tes3ui.menuMode() and tes3.mobilePlayer then
+        if tes3.isKeyEqual({ actual = e, expected = cfg.key }) then
+            Menu:CreateMenu()
         end
     end
 end
 event.register("keyDown", keyDown)
 
-
---- @param e exerciseSkillEventData
-local function learn(e)
-    if e.skill == tes3.skill.enchant then
-        if Menu:get() then
-            Menu:updateCost()
-        end
+--- @param e skillRaisedEventData
+local function onEnchantLevel(e)
+    if Menu:get() then
+        Menu:updateCost()
     end
 end
-event.register(tes3.event.skillRaised, learn)
+event.register(tes3.event.skillRaised, onEnchantLevel, { filter = tes3.skill.enchant })
 
 
 event.register("initialized", function()
